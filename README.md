@@ -10,6 +10,10 @@ WhatsApp bot berbasis Node.js + Baileys dengan command:
 
 Requirement minimum: Node.js 20+
 
+Struktur penting untuk command `.brat`:
+
+- `assets/font.ttf`
+
 ## 1) Jalankan di Windows
 
 ```bash
