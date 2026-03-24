@@ -13,6 +13,8 @@ if (ffmpegPath) {
 const TMP_DIR = path.join(os.tmpdir(), "northmadbot");
 const WATERMARK = "northmadbot";
 const BRAT_FONT_PATH = path.join(__dirname, "..", "assets", "font.ttf");
+const WHITE_PNG_1PX_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5f8uoAAAAASUVORK5CYII=";
 
 const ensureTmpDir = async () => {
   await fs.mkdir(TMP_DIR, { recursive: true });
@@ -167,6 +169,7 @@ const videoToWebp = async (buffer, maxSeconds = 10) => {
 
 const bratTextToWebp = async (text) => {
   await ensureTmpDir();
+  const inputPath = path.join(TMP_DIR, randomName("png"));
   const outputPath = path.join(TMP_DIR, randomName("webp"));
   const wrapped = wrapText(String(text || "").toLowerCase(), 16, 5);
   const escaped = escapeFfmpegText(wrapped || "brat");
@@ -179,17 +182,18 @@ const bratTextToWebp = async (text) => {
     throw new Error(`Font tidak ditemukan di ${BRAT_FONT_PATH}`);
   }
 
+  await fs.writeFile(inputPath, Buffer.from(WHITE_PNG_1PX_BASE64, "base64"));
+
   try {
     await runFfmpeg(
-      ffmpeg("color=c=white:s=512x512:d=1")
-        .inputFormat("lavfi")
+      ffmpeg(inputPath)
         .outputOptions([
           "-frames:v",
           "1",
           "-vcodec",
           "libwebp",
           "-vf",
-          `format=rgba,drawtext=fontfile='${escapedFontPath}':text='${escaped}':fontcolor=black:fontsize=74:line_spacing=12:x=(w-text_w)/2:y=(h-text_h)/2,${watermarkFilter}`,
+          `scale=512:512:flags=neighbor,format=rgba,drawtext=fontfile='${escapedFontPath}':text='${escaped}':fontcolor=black:fontsize=74:line_spacing=12:x=(w-text_w)/2:y=(h-text_h)/2,${watermarkFilter}`,
           "-s",
           "512:512",
           "-loop",
@@ -203,7 +207,7 @@ const bratTextToWebp = async (text) => {
 
     return await fs.readFile(outputPath);
   } finally {
-    await Promise.allSettled([fs.unlink(outputPath)]);
+    await Promise.allSettled([fs.unlink(inputPath), fs.unlink(outputPath)]);
   }
 };
 
