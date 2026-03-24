@@ -28,6 +28,18 @@ const BRAT_MAX_LINES = 5;
 const BRAT_CANVAS_SIZE = 512;
 const BRAT_MAX_WIDTH = BRAT_CANVAS_SIZE - BRAT_X * 2;
 const BRAT_EMOJI_SCALE = 0.9;
+const BRAT_BLUR_PASSES = [
+  { dx: -2, dy: 0, alpha: 0.14 },
+  { dx: 2, dy: 0, alpha: 0.14 },
+  { dx: 0, dy: -2, alpha: 0.12 },
+  { dx: 0, dy: 2, alpha: 0.12 },
+  { dx: -1, dy: -1, alpha: 0.1 },
+  { dx: 1, dy: 1, alpha: 0.1 }
+];
+const BRAT_ANIM_FPS = 12;
+const BRAT_ANIM_FRAMES = 22;
+const BRAT_ANIM_STAGGER = 0.09;
+const BRAT_ANIM_FROM_TOP = 140;
 
 let bratFontReady = false;
 const emojiImageCache = new Map();
@@ -201,9 +213,11 @@ const getBratBaseY = (lineCount, lineSpacing) => {
   return Math.max(36, Math.floor((BRAT_CANVAS_SIZE - totalHeight) / 2));
 };
 
-const drawLineWithEmoji = async (ctx, line, x, y, fontSize, emojiSize) => {
+const drawLineWithEmojiRaw = async (ctx, line, x, y, fontSize, emojiSize, alpha = 1) => {
   let cursor = x;
   let textRun = "";
+  const prevAlpha = ctx.globalAlpha;
+  ctx.globalAlpha = alpha;
 
   const flushText = () => {
     if (!textRun) return;
@@ -238,7 +252,28 @@ const drawLineWithEmoji = async (ctx, line, x, y, fontSize, emojiSize) => {
   }
 
   flushText();
+  ctx.globalAlpha = prevAlpha;
 };
+
+const drawLineWithEmoji = async (ctx, line, x, y, fontSize, emojiSize, alpha = 1) => {
+  for (const pass of BRAT_BLUR_PASSES) {
+    await drawLineWithEmojiRaw(
+      ctx,
+      line,
+      x + pass.dx,
+      y + pass.dy,
+      fontSize,
+      emojiSize,
+      Math.min(1, alpha * pass.alpha)
+    );
+  }
+
+  await drawLineWithEmojiRaw(ctx, line, x, y, fontSize, emojiSize, alpha);
+};
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+const easeOutCubic = (value) => 1 - Math.pow(1 - clamp(value, 0, 1), 3);
 
 const pickBratLayout = (ctx, text, fontFamily) => {
   for (let size = BRAT_FONT_SIZE_MAX; size >= BRAT_FONT_SIZE_MIN; size -= 2) {
@@ -265,6 +300,50 @@ const pickBratLayout = (ctx, text, fontFamily) => {
     lineSpacing: fallbackSpacing,
     lines: splitBratLines(ctx, text, fallbackSize, fallbackEmojiSize)
   };
+};
+
+const getBratLayout = (text) => {
+  ensureBratFont();
+
+  const layoutCanvas = createCanvas(BRAT_CANVAS_SIZE, BRAT_CANVAS_SIZE);
+  const layoutCtx = layoutCanvas.getContext("2d");
+  layoutCtx.textBaseline = "top";
+
+  const fontFamily = bratFontReady ? "BratFont" : "sans-serif";
+  const layout = pickBratLayout(layoutCtx, text, fontFamily);
+  return { layout, fontFamily };
+};
+
+const renderBratCanvas = async (layout, fontFamily, options = {}) => {
+  const { animated = false, frameProgress = 1 } = options;
+
+  const canvas = createCanvas(BRAT_CANVAS_SIZE, BRAT_CANVAS_SIZE);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = BRAT_BG_HEX;
+  ctx.fillRect(0, 0, BRAT_CANVAS_SIZE, BRAT_CANVAS_SIZE);
+
+  ctx.fillStyle = BRAT_FONT_COLOR;
+  ctx.textBaseline = "top";
+  ctx.font = `${layout.fontSize}px ${fontFamily}`;
+
+  const baseY = getBratBaseY(layout.lines.length, layout.lineSpacing);
+  const staggerDenom = Math.max(0.01, 1 - BRAT_ANIM_STAGGER * Math.max(0, layout.lines.length - 1));
+
+  for (let i = 0; i < layout.lines.length; i += 1) {
+    let y = baseY + i * layout.lineSpacing;
+    let alpha = 1;
+
+    if (animated) {
+      const lineProgress = (frameProgress - i * BRAT_ANIM_STAGGER) / staggerDenom;
+      const eased = easeOutCubic(lineProgress);
+      y -= (1 - eased) * (BRAT_ANIM_FROM_TOP + i * 8);
+      alpha = 0.18 + 0.82 * eased;
+    }
+
+    await drawLineWithEmoji(ctx, layout.lines[i], BRAT_X, y, layout.fontSize, layout.emojiSize, alpha);
+  }
+
+  return canvas;
 };
 
 const imageToWebp = async (buffer) => {
@@ -373,38 +452,65 @@ const videoToWebp = async (buffer, maxSeconds = 10) => {
 };
 
 const bratTextToWebp = async (text) => {
-  ensureBratFont();
-
-  const canvas = createCanvas(BRAT_CANVAS_SIZE, BRAT_CANVAS_SIZE);
-  const ctx = canvas.getContext("2d");
-
-  ctx.fillStyle = BRAT_BG_HEX;
-  ctx.fillRect(0, 0, BRAT_CANVAS_SIZE, BRAT_CANVAS_SIZE);
-
-  ctx.fillStyle = BRAT_FONT_COLOR;
-  ctx.textBaseline = "top";
-  const fontFamily = bratFontReady ? "BratFont" : "sans-serif";
-  const layout = pickBratLayout(ctx, text, fontFamily);
-  ctx.font = `${layout.fontSize}px ${fontFamily}`;
-  const baseY = getBratBaseY(layout.lines.length, layout.lineSpacing);
-
-  for (let i = 0; i < layout.lines.length; i += 1) {
-    await drawLineWithEmoji(
-      ctx,
-      layout.lines[i],
-      BRAT_X,
-      baseY + i * layout.lineSpacing,
-      layout.fontSize,
-      layout.emojiSize
-    );
-  }
-
+  const { layout, fontFamily } = getBratLayout(text);
+  const canvas = await renderBratCanvas(layout, fontFamily, { animated: false });
   const pngBuffer = canvas.toBuffer("image/png");
   return imageToWebp(pngBuffer);
+};
+
+const bratTextToAnimatedWebp = async (text) => {
+  await ensureTmpDir();
+  const { layout, fontFamily } = getBratLayout(text);
+
+  const framesDir = path.join(TMP_DIR, `bratvid-${crypto.randomBytes(6).toString("hex")}`);
+  const outputPath = path.join(TMP_DIR, randomName("webp"));
+  await fs.mkdir(framesDir, { recursive: true });
+
+  try {
+    for (let i = 0; i < BRAT_ANIM_FRAMES; i += 1) {
+      const progress = BRAT_ANIM_FRAMES <= 1 ? 1 : i / (BRAT_ANIM_FRAMES - 1);
+      const frameCanvas = await renderBratCanvas(layout, fontFamily, {
+        animated: true,
+        frameProgress: progress
+      });
+
+      const framePath = path.join(framesDir, `frame_${String(i).padStart(3, "0")}.png`);
+      await fs.writeFile(framePath, frameCanvas.toBuffer("image/png"));
+    }
+
+    await runFfmpeg(
+      ffmpeg(path.join(framesDir, "frame_%03d.png"))
+        .inputOptions(["-framerate", String(BRAT_ANIM_FPS)])
+        .outputOptions([
+          "-vcodec",
+          "libwebp",
+          "-vf",
+          "format=rgba,scale=512:512:flags=lanczos",
+          "-loop",
+          "0",
+          "-an",
+          "-vsync",
+          "0",
+          "-preset",
+          "default",
+          "-q:v",
+          "55"
+        ]),
+      outputPath
+    );
+
+    return await fs.readFile(outputPath);
+  } finally {
+    await Promise.allSettled([
+      fs.rm(framesDir, { recursive: true, force: true }),
+      fs.unlink(outputPath)
+    ]);
+  }
 };
 
 module.exports = {
   imageToWebp,
   videoToWebp,
-  bratTextToWebp
+  bratTextToWebp,
+  bratTextToAnimatedWebp
 };

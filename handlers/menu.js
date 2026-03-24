@@ -1,10 +1,10 @@
-const getMenuText = (prefix = ".") => `╭───「 NORTHMADBOT 」
+﻿const getMenuText = (prefix = ".") => `╭───「 NORTHMADBOT 」
 │
 ├ ${prefix}menu
 ├ ${prefix}ping
 ├ ${prefix}sticker / ${prefix}s
 ├ ${prefix}brat <text>
-├ ${prefix}bratvid
+├ ${prefix}bratvid <text> / reply video
 │
 ╰─────────────
 

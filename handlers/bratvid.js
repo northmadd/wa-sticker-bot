@@ -1,6 +1,6 @@
 const pino = require("pino");
 const { downloadMediaMessage } = require("@whiskeysockets/baileys");
-const { videoToWebp } = require("../utils/converter");
+const { videoToWebp, bratTextToAnimatedWebp } = require("../utils/converter");
 const { getMediaTarget } = require("../utils/message");
 
 const BAILEYS_LOG = pino({ level: "silent" });
@@ -8,14 +8,30 @@ const BAILEYS_LOG = pino({ level: "silent" });
 module.exports = {
   name: "bratvid",
   commands: ["bratvid"],
-  execute: async ({ sock, jid, message, prefix }) => {
+  execute: async ({ sock, jid, message, prefix, args }) => {
     try {
+      const text = args.join(" ").trim();
+      if (text) {
+        if (text.length > 180) {
+          await sock.sendMessage(
+            jid,
+            { text: "Teks terlalu panjang. Maksimal 180 karakter ya." },
+            { quoted: message }
+          );
+          return;
+        }
+
+        const animatedSticker = await bratTextToAnimatedWebp(text);
+        await sock.sendMessage(jid, { sticker: animatedSticker }, { quoted: message });
+        return;
+      }
+
       const mediaTarget = getMediaTarget(message);
       if (!mediaTarget || mediaTarget.type !== "videoMessage") {
         await sock.sendMessage(
           jid,
           {
-            text: `Kirim/reply video dulu ya (max 10 detik), terus ketik ${prefix}bratvid`
+            text: `Kirim teks atau reply video dulu ya (max 10 detik).\nContoh: ${prefix}bratvid uang gabisa beli kebahagiaan`
           },
           { quoted: message }
         );
@@ -51,7 +67,7 @@ module.exports = {
       console.error("Error .bratvid:", error.message);
       await sock.sendMessage(
         jid,
-        { text: "Gagal bikin bratvid. Coba video lain ya." },
+        { text: "Gagal bikin bratvid. Coba teks/video lain ya." },
         { quoted: message }
       );
     }
