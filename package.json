@@ -17,7 +17,7 @@
   "author": "northmadbot",
   "license": "MIT",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1",

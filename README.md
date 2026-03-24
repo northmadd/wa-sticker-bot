@@ -8,6 +8,8 @@ WhatsApp bot berbasis Node.js + Baileys dengan command:
 - `.brat <text>`
 - `.bratvid` (maks 10 detik)
 
+Requirement minimum: Node.js 20+
+
 ## 1) Jalankan di Windows
 
 ```bash
