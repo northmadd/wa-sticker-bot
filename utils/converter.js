@@ -19,14 +19,15 @@ const ENABLE_WATERMARK = String(process.env.ENABLE_WATERMARK || "false").toLower
 
 const BRAT_BG_HEX = "#EDEDED";
 const BRAT_FONT_COLOR = "#111111";
-const BRAT_FONT_SIZE = 66;
+const BRAT_FONT_SIZE_MAX = 70;
+const BRAT_FONT_SIZE_MIN = 52;
 const BRAT_X = 40;
-const BRAT_LINE_SPACING = 78;
-const BRAT_MAX_CHARS = 18;
+const BRAT_LINE_SPACING_RATIO = 1.18;
+const BRAT_MAX_CHARS = 20;
 const BRAT_MAX_LINES = 5;
 const BRAT_CANVAS_SIZE = 512;
 const BRAT_MAX_WIDTH = BRAT_CANVAS_SIZE - BRAT_X * 2;
-const BRAT_EMOJI_SIZE = 60;
+const BRAT_EMOJI_SCALE = 0.9;
 
 let bratFontReady = false;
 const emojiImageCache = new Map();
@@ -119,21 +120,21 @@ const getEmojiUrl = (grapheme) => {
   return emoji;
 };
 
-const measureByGrapheme = (ctx, text) => {
+const measureByGrapheme = (ctx, text, emojiSize) => {
   let width = 0;
   for (const grapheme of getGraphemes(text)) {
-    width += getEmojiUrl(grapheme) ? BRAT_EMOJI_SIZE : ctx.measureText(grapheme).width;
+    width += getEmojiUrl(grapheme) ? emojiSize : ctx.measureText(grapheme).width;
   }
   return width;
 };
 
-const splitLongWord = (ctx, word, maxWidth) => {
+const splitLongWord = (ctx, word, maxWidth, emojiSize) => {
   const chunks = [];
   let current = "";
   let currentWidth = 0;
 
   for (const grapheme of getGraphemes(word)) {
-    const w = getEmojiUrl(grapheme) ? BRAT_EMOJI_SIZE : ctx.measureText(grapheme).width;
+    const w = getEmojiUrl(grapheme) ? emojiSize : ctx.measureText(grapheme).width;
     if (current && currentWidth + w > maxWidth) {
       chunks.push(current);
       current = grapheme;
@@ -148,7 +149,7 @@ const splitLongWord = (ctx, word, maxWidth) => {
   return chunks;
 };
 
-const splitBratLines = (ctx, text) => {
+const splitBratLines = (ctx, text, fontSize, emojiSize) => {
   const safe = String(text || "")
     .replace(/\s+/g, " ")
     .trim()
@@ -161,16 +162,19 @@ const splitBratLines = (ctx, text) => {
   let line = "";
   let lineWidth = 0;
   const spaceWidth = ctx.measureText(" ").width;
-  const roughMaxWidth = BRAT_MAX_CHARS * (BRAT_FONT_SIZE * 0.55);
+  const roughMaxWidth = BRAT_MAX_CHARS * (fontSize * 0.56);
   const maxWidth = Math.min(BRAT_MAX_WIDTH, roughMaxWidth);
 
   for (const rawWord of words) {
     if (!rawWord) continue;
 
-    const wordParts = measureByGrapheme(ctx, rawWord) > maxWidth ? splitLongWord(ctx, rawWord, maxWidth) : [rawWord];
+    const wordParts =
+      measureByGrapheme(ctx, rawWord, emojiSize) > maxWidth
+        ? splitLongWord(ctx, rawWord, maxWidth, emojiSize)
+        : [rawWord];
 
     for (const word of wordParts) {
-      const wordWidth = measureByGrapheme(ctx, word);
+      const wordWidth = measureByGrapheme(ctx, word, emojiSize);
       const required = line ? lineWidth + spaceWidth + wordWidth : wordWidth;
 
       if (!line || required <= maxWidth) {
@@ -191,20 +195,20 @@ const splitBratLines = (ctx, text) => {
   return lines.slice(0, BRAT_MAX_LINES);
 };
 
-const getBratBaseY = (lineCount) => {
+const getBratBaseY = (lineCount, lineSpacing) => {
   const count = Math.max(1, Number(lineCount || 1));
-  const totalHeight = count * BRAT_LINE_SPACING;
+  const totalHeight = count * lineSpacing;
   return Math.max(36, Math.floor((BRAT_CANVAS_SIZE - totalHeight) / 2));
 };
 
-const drawLineWithEmoji = async (ctx, line, x, y) => {
+const drawLineWithEmoji = async (ctx, line, x, y, fontSize, emojiSize) => {
   let cursor = x;
   let textRun = "";
 
   const flushText = () => {
     if (!textRun) return;
     ctx.fillText(textRun, cursor, y);
-    cursor += measureByGrapheme(ctx, textRun);
+    cursor += measureByGrapheme(ctx, textRun, emojiSize);
     textRun = "";
   };
 
@@ -224,9 +228,9 @@ const drawLineWithEmoji = async (ctx, line, x, y) => {
         emojiImage = await loadImage(emojiUrl);
         emojiImageCache.set(emojiUrl, emojiImage);
       }
-      const emojiY = y + Math.max(0, Math.floor((BRAT_FONT_SIZE - BRAT_EMOJI_SIZE) / 2));
-      ctx.drawImage(emojiImage, cursor, emojiY, BRAT_EMOJI_SIZE, BRAT_EMOJI_SIZE);
-      cursor += BRAT_EMOJI_SIZE;
+      const emojiY = y + Math.max(0, Math.floor((fontSize - emojiSize) / 2));
+      ctx.drawImage(emojiImage, cursor, emojiY, emojiSize, emojiSize);
+      cursor += emojiSize;
     } catch {
       ctx.fillText(grapheme, cursor, y);
       cursor += ctx.measureText(grapheme).width;
@@ -234,6 +238,33 @@ const drawLineWithEmoji = async (ctx, line, x, y) => {
   }
 
   flushText();
+};
+
+const pickBratLayout = (ctx, text, fontFamily) => {
+  for (let size = BRAT_FONT_SIZE_MAX; size >= BRAT_FONT_SIZE_MIN; size -= 2) {
+    const emojiSize = Math.round(size * BRAT_EMOJI_SCALE);
+    const lineSpacing = Math.max(size + 8, Math.round(size * BRAT_LINE_SPACING_RATIO));
+    ctx.font = `${size}px ${fontFamily}`;
+
+    const lines = splitBratLines(ctx, text, size, emojiSize);
+    const widest = Math.max(...lines.map((line) => measureByGrapheme(ctx, line, emojiSize)));
+    const totalHeight = lines.length * lineSpacing;
+
+    if (widest <= BRAT_MAX_WIDTH && totalHeight <= BRAT_CANVAS_SIZE - 72) {
+      return { fontSize: size, emojiSize, lineSpacing, lines };
+    }
+  }
+
+  const fallbackSize = BRAT_FONT_SIZE_MIN;
+  const fallbackEmojiSize = Math.round(fallbackSize * BRAT_EMOJI_SCALE);
+  const fallbackSpacing = Math.max(fallbackSize + 8, Math.round(fallbackSize * BRAT_LINE_SPACING_RATIO));
+  ctx.font = `${fallbackSize}px ${fontFamily}`;
+  return {
+    fontSize: fallbackSize,
+    emojiSize: fallbackEmojiSize,
+    lineSpacing: fallbackSpacing,
+    lines: splitBratLines(ctx, text, fallbackSize, fallbackEmojiSize)
+  };
 };
 
 const imageToWebp = async (buffer) => {
@@ -352,13 +383,20 @@ const bratTextToWebp = async (text) => {
 
   ctx.fillStyle = BRAT_FONT_COLOR;
   ctx.textBaseline = "top";
-  ctx.font = bratFontReady ? `${BRAT_FONT_SIZE}px BratFont` : `${BRAT_FONT_SIZE}px sans-serif`;
+  const fontFamily = bratFontReady ? "BratFont" : "sans-serif";
+  const layout = pickBratLayout(ctx, text, fontFamily);
+  ctx.font = `${layout.fontSize}px ${fontFamily}`;
+  const baseY = getBratBaseY(layout.lines.length, layout.lineSpacing);
 
-  const lines = splitBratLines(ctx, text);
-  const baseY = getBratBaseY(lines.length);
-
-  for (let i = 0; i < lines.length; i += 1) {
-    await drawLineWithEmoji(ctx, lines[i], BRAT_X, baseY + i * BRAT_LINE_SPACING);
+  for (let i = 0; i < layout.lines.length; i += 1) {
+    await drawLineWithEmoji(
+      ctx,
+      layout.lines[i],
+      BRAT_X,
+      baseY + i * layout.lineSpacing,
+      layout.fontSize,
+      layout.emojiSize
+    );
   }
 
   const pngBuffer = canvas.toBuffer("image/png");
