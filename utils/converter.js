@@ -20,6 +20,39 @@ const randomName = (ext) => `${crypto.randomBytes(8).toString("hex")}.${ext}`;
 
 const watermarkFilter = `drawtext=text='${WATERMARK}':fontcolor=white:fontsize=20:borderw=2:bordercolor=black:x=w-tw-12:y=h-th-12`;
 
+const escapeFfmpegText = (text) =>
+  String(text)
+    .replace(/\\/g, "\\\\")
+    .replace(/:/g, "\\:")
+    .replace(/,/g, "\\,")
+    .replace(/%/g, "\\%")
+    .replace(/'/g, "\\'")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]")
+    .replace(/\n/g, "\\n");
+
+const wrapText = (text, maxChars = 16, maxLines = 5) => {
+  const words = String(text || "").trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "";
+
+  const lines = [];
+  let currentLine = "";
+
+  for (const word of words) {
+    const candidate = currentLine ? `${currentLine} ${word}` : word;
+    if (candidate.length <= maxChars) {
+      currentLine = candidate;
+    } else {
+      if (currentLine) lines.push(currentLine);
+      currentLine = word;
+      if (lines.length >= maxLines) break;
+    }
+  }
+
+  if (currentLine && lines.length < maxLines) lines.push(currentLine);
+  return lines.slice(0, maxLines).join("\n");
+};
+
 const imageToWebp = async (buffer) => {
   await ensureTmpDir();
   const inputPath = path.join(TMP_DIR, randomName("jpg"));
@@ -34,7 +67,9 @@ const imageToWebp = async (buffer) => {
           "-vcodec",
           "libwebp",
           "-vf",
-          `scale=512:512:force_original_aspect_ratio=decrease,fps=15,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,${watermarkFilter}`,
+          `format=rgba,scale=512:512:force_original_aspect_ratio=decrease,fps=15,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,${watermarkFilter}`,
+          "-pix_fmt",
+          "yuva420p",
           "-lossless",
           "0",
           "-q:v",
@@ -77,7 +112,9 @@ const videoToWebp = async (buffer, maxSeconds = 10) => {
           "-vcodec",
           "libwebp",
           "-vf",
-          `fps=15,scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,${watermarkFilter}`,
+          `fps=15,format=rgba,scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,${watermarkFilter}`,
+          "-pix_fmt",
+          "yuva420p",
           "-loop",
           "0",
           "-an",
@@ -99,7 +136,42 @@ const videoToWebp = async (buffer, maxSeconds = 10) => {
   }
 };
 
+const bratTextToWebp = async (text) => {
+  await ensureTmpDir();
+  const outputPath = path.join(TMP_DIR, randomName("webp"));
+  const wrapped = wrapText(String(text || "").toLowerCase(), 16, 5);
+  const escaped = escapeFfmpegText(wrapped || "brat");
+
+  try {
+    await new Promise((resolve, reject) => {
+      ffmpeg("color=c=#8ACE00:s=512x512:d=1")
+        .inputFormat("lavfi")
+        .outputOptions([
+          "-vcodec",
+          "libwebp",
+          "-pix_fmt",
+          "yuva420p",
+          "-vf",
+          `format=rgba,drawtext=text='${escaped}':fontcolor=black:fontsize=62:line_spacing=10:x=(w-text_w)/2:y=(h-text_h)/2,${watermarkFilter}`,
+          "-loop",
+          "0",
+          "-an",
+          "-vsync",
+          "0"
+        ])
+        .save(outputPath)
+        .on("end", resolve)
+        .on("error", reject);
+    });
+
+    return await fs.readFile(outputPath);
+  } finally {
+    await Promise.allSettled([fs.unlink(outputPath)]);
+  }
+};
+
 module.exports = {
   imageToWebp,
-  videoToWebp
+  videoToWebp,
+  bratTextToWebp
 };

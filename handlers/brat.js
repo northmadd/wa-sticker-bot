@@ -1,5 +1,4 @@
-const axios = require("axios");
-const { imageToWebp } = require("../utils/converter");
+const { bratTextToWebp } = require("../utils/converter");
 
 module.exports = {
   name: "brat",
@@ -25,20 +24,13 @@ module.exports = {
     }
 
     try {
-      const url = `https://brat.caliphdev.com/api/brat?text=${encodeURIComponent(text)}`;
-      const response = await axios.get(url, {
-        responseType: "arraybuffer",
-        timeout: 20000
-      });
-
-      const imageBuffer = Buffer.from(response.data);
-      const stickerBuffer = await imageToWebp(imageBuffer);
+      const stickerBuffer = await bratTextToWebp(text);
       await sock.sendMessage(jid, { sticker: stickerBuffer }, { quoted: message });
     } catch (error) {
       console.error("Error .brat:", error.message);
       await sock.sendMessage(
         jid,
-        { text: "Endpoint brat lagi rewel. Coba lagi bentar ya 🙏" },
+        { text: "Generate brat gagal. Coba teks yang lebih pendek ya." },
         { quoted: message }
       );
     }
