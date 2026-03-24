@@ -19,6 +19,8 @@ const DATA_DIR = process.env.DATA_DIR || __dirname;
 const BOT_NAME = process.env.BOT_NAME || "northmadbot";
 const PREFIX = process.env.PREFIX || ".";
 const SESSION_DIR = process.env.SESSION_DIR || path.join(DATA_DIR, "session");
+const USE_PAIRING_CODE = String(process.env.USE_PAIRING_CODE || "false").toLowerCase() === "true";
+const PAIRING_NUMBER = String(process.env.PAIRING_NUMBER || "").replace(/\D/g, "");
 const LOG = pino({ level: "silent" });
 
 let db = null;
@@ -45,6 +47,22 @@ const startBot = async () => {
     printQRInTerminal: false
   });
 
+  if (USE_PAIRING_CODE && !sock.authState.creds.registered) {
+    if (!PAIRING_NUMBER) {
+      console.log("USE_PAIRING_CODE aktif tapi PAIRING_NUMBER belum diisi.");
+    } else {
+      setTimeout(async () => {
+        try {
+          const code = await sock.requestPairingCode(PAIRING_NUMBER);
+          console.log(`\nPairing code: ${code}`);
+          console.log("Buka WhatsApp > Linked Devices > Link with phone number.");
+        } catch (error) {
+          console.error("Gagal generate pairing code:", error.message);
+        }
+      }, 2000);
+    }
+  }
+
   sock.ev.on("creds.update", saveCreds);
 
   sock.ev.on("connection.update", async (update) => {
@@ -53,6 +71,8 @@ const startBot = async () => {
     if (qr) {
       console.log("\nScan QR ini di WhatsApp kamu:\n");
       qrcode.generate(qr, { small: true });
+      const qrUrl = `https://quickchart.io/qr?size=300&text=${encodeURIComponent(qr)}`;
+      console.log(`Kalau QR kepotong di log, buka ini: ${qrUrl}`);
     }
 
     if (connection === "open") {

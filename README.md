@@ -53,6 +53,13 @@ npm run setup
 7. Deploy, lalu buka logs service Railway.
 8. Scan QR yang muncul di logs (sekali saja).
 
+Kalau QR kepotong di panel logs, aktifkan pairing code:
+
+- `USE_PAIRING_CODE=true`
+- `PAIRING_NUMBER=62xxxxxxxxxxx` (format internasional tanpa `+`)
+
+Lalu redeploy. Bot akan tampilkan kode pairing di logs.
+
 Contoh push code ke repo kalau local kamu belum terhubung:
 
 ```bash
