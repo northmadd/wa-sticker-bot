@@ -28,6 +28,8 @@ const LOG = pino({ level: "silent" });
 let db = null;
 let isStarting = false;
 let reconnectTimer = null;
+let isShuttingDown = false;
+let currentSock = null;
 
 const ensureRuntimeDirs = () => {
   if (!fs.existsSync(SESSION_DIR)) {
@@ -37,7 +39,7 @@ const ensureRuntimeDirs = () => {
 };
 
 const scheduleReconnect = () => {
-  if (reconnectTimer) return;
+  if (reconnectTimer || isShuttingDown) return;
 
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
@@ -48,7 +50,7 @@ const scheduleReconnect = () => {
 };
 
 const startBot = async () => {
-  if (isStarting) return;
+  if (isStarting || isShuttingDown) return;
   isStarting = true;
 
   try {
@@ -65,6 +67,7 @@ const startBot = async () => {
       browser: [BOT_NAME, "Chrome", "1.0.0"],
       printQRInTerminal: false
     });
+    currentSock = sock;
 
     if (USE_PAIRING_CODE && !sock.authState.creds.registered) {
       if (!PAIRING_NUMBER) {
@@ -175,6 +178,27 @@ const startBot = async () => {
   }
 };
 
+const gracefulShutdown = (signal) => {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`${signal} diterima, shutdown bot dengan aman...`);
+
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
+  try {
+    if (currentSock?.ws?.close) {
+      currentSock.ws.close();
+    }
+  } catch (error) {
+    console.error("Gagal close socket saat shutdown:", error.message);
+  }
+
+  setTimeout(() => process.exit(0), 500);
+};
+
 process.on("uncaughtException", (error) => {
   console.error("Uncaught exception:", error);
 });
@@ -182,6 +206,8 @@ process.on("uncaughtException", (error) => {
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled rejection:", reason);
 });
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 startBot().catch((error) => {
   console.error("Gagal jalanin bot:", error);

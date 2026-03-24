@@ -1,7 +1,7 @@
 {
   "$schema": "https://railway.app/railway.schema.json",
   "deploy": {
-    "startCommand": "npm start",
+    "startCommand": "node index.js",
     "restartPolicyType": "ALWAYS",
     "restartPolicyMaxRetries": 10
   }
