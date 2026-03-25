@@ -19,27 +19,42 @@ const ENABLE_WATERMARK = String(process.env.ENABLE_WATERMARK || "false").toLower
 
 const BRAT_BG_HEX = "#EDEDED";
 const BRAT_FONT_COLOR = "#111111";
-const BRAT_FONT_SIZE_MAX = 70;
-const BRAT_FONT_SIZE_MIN = 52;
-const BRAT_X = 40;
-const BRAT_LINE_SPACING_RATIO = 1.18;
-const BRAT_MAX_CHARS = 20;
+const BRAT_FONT_SIZE_MAX = 108;
+const BRAT_FONT_SIZE_MIN = 44;
+const BRAT_PADDING = 40;
+const BRAT_LINE_SPACING_RATIO = 1;
 const BRAT_MAX_LINES = 5;
 const BRAT_CANVAS_SIZE = 512;
-const BRAT_MAX_WIDTH = BRAT_CANVAS_SIZE - BRAT_X * 2;
-const BRAT_EMOJI_SCALE = 0.9;
+const BRAT_MAX_WIDTH = BRAT_CANVAS_SIZE - BRAT_PADDING * 2;
+const BRAT_MAX_HEIGHT = BRAT_CANVAS_SIZE - BRAT_PADDING * 2;
+const BRAT_EMOJI_SCALE = 0.96;
+const BRAT_SPACE_COMPRESS = 0.8;
+const BRAT_JUSTIFY_THRESHOLD = 0.56;
+const BRAT_SOFTEN_SCALE = 0.84;
+const BRAT_SOFTEN_PASSES = 2;
+const BRAT_BOLD_PASSES = [
+  { dx: -1.2, dy: 0, alpha: 0.98 },
+  { dx: 1.2, dy: 0, alpha: 0.98 },
+  { dx: 0, dy: -0.8, alpha: 0.9 },
+  { dx: 0, dy: 0.8, alpha: 0.9 },
+  { dx: -0.8, dy: -0.8, alpha: 0.82 },
+  { dx: 0.8, dy: 0.8, alpha: 0.82 }
+];
 const BRAT_BLUR_PASSES = [
-  { dx: -2, dy: 0, alpha: 0.14 },
-  { dx: 2, dy: 0, alpha: 0.14 },
-  { dx: 0, dy: -2, alpha: 0.12 },
-  { dx: 0, dy: 2, alpha: 0.12 },
-  { dx: -1, dy: -1, alpha: 0.1 },
-  { dx: 1, dy: 1, alpha: 0.1 }
+  { dx: -6, dy: 0, alpha: 0.16 },
+  { dx: 6, dy: 0, alpha: 0.16 },
+  { dx: 0, dy: -6, alpha: 0.15 },
+  { dx: 0, dy: 6, alpha: 0.15 },
+  { dx: -4, dy: -4, alpha: 0.14 },
+  { dx: 4, dy: 4, alpha: 0.14 },
+  { dx: -3, dy: 3, alpha: 0.12 },
+  { dx: 3, dy: -3, alpha: 0.12 },
+  { dx: -8, dy: 0, alpha: 0.08 },
+  { dx: 8, dy: 0, alpha: 0.08 }
 ];
 const BRAT_ANIM_FPS = 12;
 const BRAT_ANIM_FRAMES = 22;
-const BRAT_ANIM_STAGGER = 0.09;
-const BRAT_ANIM_FROM_TOP = 140;
+const MAX_VIDEO_STICKER_SECONDS = 30;
 
 let bratFontReady = false;
 const emojiImageCache = new Map();
@@ -140,6 +155,9 @@ const measureByGrapheme = (ctx, text, emojiSize) => {
   return width;
 };
 
+const measureWordsWidth = (ctx, words, emojiSize) =>
+  words.reduce((total, word) => total + measureByGrapheme(ctx, word, emojiSize), 0);
+
 const splitLongWord = (ctx, word, maxWidth, emojiSize) => {
   const chunks = [];
   let current = "";
@@ -173,9 +191,8 @@ const splitBratLines = (ctx, text, fontSize, emojiSize) => {
   const lines = [];
   let line = "";
   let lineWidth = 0;
-  const spaceWidth = ctx.measureText(" ").width;
-  const roughMaxWidth = BRAT_MAX_CHARS * (fontSize * 0.56);
-  const maxWidth = Math.min(BRAT_MAX_WIDTH, roughMaxWidth);
+  const spaceWidth = ctx.measureText(" ").width * BRAT_SPACE_COMPRESS;
+  const maxWidth = BRAT_MAX_WIDTH;
 
   for (const rawWord of words) {
     if (!rawWord) continue;
@@ -207,13 +224,12 @@ const splitBratLines = (ctx, text, fontSize, emojiSize) => {
   return lines.slice(0, BRAT_MAX_LINES);
 };
 
-const getBratBaseY = (lineCount, lineSpacing) => {
-  const count = Math.max(1, Number(lineCount || 1));
-  const totalHeight = count * lineSpacing;
-  return Math.max(36, Math.floor((BRAT_CANVAS_SIZE - totalHeight) / 2));
+const getBratBaseY = (totalHeight) => {
+  const safeHeight = Math.max(0, Number(totalHeight || 0));
+  return BRAT_PADDING + Math.max(0, Math.floor((BRAT_MAX_HEIGHT - safeHeight) / 2));
 };
 
-const drawLineWithEmojiRaw = async (ctx, line, x, y, fontSize, emojiSize, alpha = 1) => {
+const drawTextToken = async (ctx, token, x, y, fontSize, emojiSize, alpha = 1) => {
   let cursor = x;
   let textRun = "";
   const prevAlpha = ctx.globalAlpha;
@@ -226,7 +242,7 @@ const drawLineWithEmojiRaw = async (ctx, line, x, y, fontSize, emojiSize, alpha 
     textRun = "";
   };
 
-  for (const grapheme of getGraphemes(line)) {
+  for (const grapheme of getGraphemes(token)) {
     const emojiUrl = getEmojiUrl(grapheme);
 
     if (!emojiUrl) {
@@ -253,10 +269,55 @@ const drawLineWithEmojiRaw = async (ctx, line, x, y, fontSize, emojiSize, alpha 
 
   flushText();
   ctx.globalAlpha = prevAlpha;
+  return cursor - x;
+};
+
+const drawLineWithEmojiRaw = async (ctx, line, x, y, fontSize, emojiSize, alpha = 1) => {
+  const tokens = String(line)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  if (tokens.length <= 1) {
+    await drawTextToken(ctx, line, x, y, fontSize, emojiSize, alpha);
+    return;
+  }
+
+  const tokensWidth = measureWordsWidth(ctx, tokens, emojiSize);
+  const naturalSpaceWidth = ctx.measureText(" ").width * BRAT_SPACE_COMPRESS;
+  const naturalWidth = tokensWidth + naturalSpaceWidth * (tokens.length - 1);
+  const useJustify = naturalWidth <= BRAT_MAX_WIDTH * BRAT_JUSTIFY_THRESHOLD;
+
+  let cursor = x;
+  let gap = naturalSpaceWidth;
+
+  if (useJustify) {
+    gap = Math.max(naturalSpaceWidth, (BRAT_MAX_WIDTH - tokensWidth) / (tokens.length - 1));
+  }
+
+  for (let i = 0; i < tokens.length; i += 1) {
+    const tokenWidth = await drawTextToken(ctx, tokens[i], cursor, y, fontSize, emojiSize, alpha);
+    cursor += tokenWidth;
+    if (i < tokens.length - 1) {
+      cursor += gap;
+    }
+  }
 };
 
 const drawLineWithEmoji = async (ctx, line, x, y, fontSize, emojiSize, alpha = 1) => {
   for (const pass of BRAT_BLUR_PASSES) {
+    await drawLineWithEmojiRaw(
+      ctx,
+      line,
+      x + pass.dx,
+      y + pass.dy,
+      fontSize,
+      emojiSize,
+      Math.min(1, alpha * pass.alpha)
+    );
+  }
+
+  for (const pass of BRAT_BOLD_PASSES) {
     await drawLineWithEmojiRaw(
       ctx,
       line,
@@ -275,24 +336,63 @@ const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
 const easeOutCubic = (value) => 1 - Math.pow(1 - clamp(value, 0, 1), 3);
 
+const softenCanvas = (sourceCanvas) => {
+  let current = sourceCanvas;
+
+  for (let i = 0; i < BRAT_SOFTEN_PASSES; i += 1) {
+    const downscaled = createCanvas(
+      Math.max(64, Math.round(BRAT_CANVAS_SIZE * BRAT_SOFTEN_SCALE)),
+      Math.max(64, Math.round(BRAT_CANVAS_SIZE * BRAT_SOFTEN_SCALE))
+    );
+    const downCtx = downscaled.getContext("2d");
+    downCtx.imageSmoothingEnabled = true;
+    downCtx.drawImage(current, 0, 0, downscaled.width, downscaled.height);
+
+    const upscaled = createCanvas(BRAT_CANVAS_SIZE, BRAT_CANVAS_SIZE);
+    const upCtx = upscaled.getContext("2d");
+    upCtx.imageSmoothingEnabled = true;
+    upCtx.drawImage(downscaled, 0, 0, BRAT_CANVAS_SIZE, BRAT_CANVAS_SIZE);
+    current = upscaled;
+  }
+
+  return current;
+};
+
 const pickBratLayout = (ctx, text, fontFamily) => {
+  let bestLayout = null;
+
   for (let size = BRAT_FONT_SIZE_MAX; size >= BRAT_FONT_SIZE_MIN; size -= 2) {
     const emojiSize = Math.round(size * BRAT_EMOJI_SCALE);
-    const lineSpacing = Math.max(size + 8, Math.round(size * BRAT_LINE_SPACING_RATIO));
+    const lineSpacing = Math.max(size + 4, Math.round(size * BRAT_LINE_SPACING_RATIO));
     ctx.font = `${size}px ${fontFamily}`;
 
     const lines = splitBratLines(ctx, text, size, emojiSize);
     const widest = Math.max(...lines.map((line) => measureByGrapheme(ctx, line, emojiSize)));
     const totalHeight = lines.length * lineSpacing;
+    const widthUsage = widest / BRAT_MAX_WIDTH;
+    const heightUsage = totalHeight / BRAT_MAX_HEIGHT;
+    const score = widthUsage * 0.55 + heightUsage * 0.45;
 
-    if (widest <= BRAT_MAX_WIDTH && totalHeight <= BRAT_CANVAS_SIZE - 72) {
-      return { fontSize: size, emojiSize, lineSpacing, lines };
+    if (widest <= BRAT_MAX_WIDTH && totalHeight <= BRAT_MAX_HEIGHT) {
+      const candidate = { fontSize: size, emojiSize, lineSpacing, lines, score };
+      if (!bestLayout || candidate.score > bestLayout.score) {
+        bestLayout = candidate;
+      }
+
+      if (widthUsage >= 0.9 && heightUsage >= 0.7) {
+        return candidate;
+      }
     }
   }
 
+  if (bestLayout) return bestLayout;
+
   const fallbackSize = BRAT_FONT_SIZE_MIN;
   const fallbackEmojiSize = Math.round(fallbackSize * BRAT_EMOJI_SCALE);
-  const fallbackSpacing = Math.max(fallbackSize + 8, Math.round(fallbackSize * BRAT_LINE_SPACING_RATIO));
+  const fallbackSpacing = Math.max(
+    fallbackSize + 4,
+    Math.round(fallbackSize * BRAT_LINE_SPACING_RATIO)
+  );
   ctx.font = `${fallbackSize}px ${fontFamily}`;
   return {
     fontSize: fallbackSize,
@@ -326,24 +426,24 @@ const renderBratCanvas = async (layout, fontFamily, options = {}) => {
   ctx.textBaseline = "top";
   ctx.font = `${layout.fontSize}px ${fontFamily}`;
 
-  const baseY = getBratBaseY(layout.lines.length, layout.lineSpacing);
-  const staggerDenom = Math.max(0.01, 1 - BRAT_ANIM_STAGGER * Math.max(0, layout.lines.length - 1));
+  const totalHeight = layout.lines.length * layout.lineSpacing;
+  const baseY = getBratBaseY(totalHeight);
+  const fadeAlpha = animated ? 0.08 + 0.92 * easeOutCubic(frameProgress) : 1;
 
   for (let i = 0; i < layout.lines.length; i += 1) {
-    let y = baseY + i * layout.lineSpacing;
-    let alpha = 1;
-
-    if (animated) {
-      const lineProgress = (frameProgress - i * BRAT_ANIM_STAGGER) / staggerDenom;
-      const eased = easeOutCubic(lineProgress);
-      y -= (1 - eased) * (BRAT_ANIM_FROM_TOP + i * 8);
-      alpha = 0.18 + 0.82 * eased;
-    }
-
-    await drawLineWithEmoji(ctx, layout.lines[i], BRAT_X, y, layout.fontSize, layout.emojiSize, alpha);
+    const y = baseY + i * layout.lineSpacing;
+    await drawLineWithEmoji(
+      ctx,
+      layout.lines[i],
+      BRAT_PADDING,
+      y,
+      layout.fontSize,
+      layout.emojiSize,
+      fadeAlpha
+    );
   }
 
-  return canvas;
+  return softenCanvas(canvas);
 };
 
 const imageToWebp = async (buffer) => {
@@ -399,11 +499,11 @@ const imageToWebp = async (buffer) => {
   }
 };
 
-const videoToWebp = async (buffer, maxSeconds = 10) => {
+const videoToWebp = async (buffer, maxSeconds = MAX_VIDEO_STICKER_SECONDS) => {
   await ensureTmpDir();
   const inputPath = path.join(TMP_DIR, randomName("mp4"));
   const outputPath = path.join(TMP_DIR, randomName("webp"));
-  const safeDuration = Math.min(Math.max(maxSeconds, 1), 10);
+  const safeDuration = Math.min(Math.max(maxSeconds, 1), MAX_VIDEO_STICKER_SECONDS);
 
   await fs.writeFile(inputPath, buffer);
 
@@ -509,6 +609,7 @@ const bratTextToAnimatedWebp = async (text) => {
 };
 
 module.exports = {
+  MAX_VIDEO_STICKER_SECONDS,
   imageToWebp,
   videoToWebp,
   bratTextToWebp,

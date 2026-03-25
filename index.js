@@ -13,7 +13,6 @@ const {
 const { loadDB, saveDB, ensureDBFile } = require("./utils/database");
 const { extractText, parseCommand } = require("./utils/message");
 const { getHandler } = require("./handlers");
-const { getMenuText } = require("./handlers/menu");
 
 const DATA_DIR = process.env.DATA_DIR || __dirname;
 const BOT_NAME = process.env.BOT_NAME || "northmadbot";
@@ -137,10 +136,8 @@ const startBot = async () => {
       try {
         if (!db.chats[jid]) {
           db.chats[jid] = {
-            firstSeenAt: new Date().toISOString(),
-            menuSent: true
+            firstSeenAt: new Date().toISOString()
           };
-          await sock.sendMessage(jid, { text: getMenuText(PREFIX) });
           await saveDB(db);
         }
 

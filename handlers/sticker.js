@@ -1,6 +1,10 @@
 const pino = require("pino");
 const { downloadMediaMessage } = require("@whiskeysockets/baileys");
-const { imageToWebp, videoToWebp } = require("../utils/converter");
+const {
+  MAX_VIDEO_STICKER_SECONDS,
+  imageToWebp,
+  videoToWebp
+} = require("../utils/converter");
 const { getMediaTarget } = require("../utils/message");
 
 const BAILEYS_LOG = pino({ level: "silent" });
@@ -15,17 +19,22 @@ module.exports = {
         await sock.sendMessage(
           jid,
           {
-            text: `Kirim/reply gambar atau video dulu ya.\nContoh: ${prefix}sticker atau ${prefix}s`
+            text: `Kirim/reply gambar atau video dulu ya.\nKalau video, maksimal ${MAX_VIDEO_STICKER_SECONDS} detik.\nContoh: ${prefix}sticker atau ${prefix}s`
           },
           { quoted: message }
         );
         return;
       }
 
-      if (mediaTarget.type === "videoMessage" && Number(mediaTarget.seconds || 0) > 10) {
+      if (
+        mediaTarget.type === "videoMessage" &&
+        Number(mediaTarget.seconds || 0) > MAX_VIDEO_STICKER_SECONDS
+      ) {
         await sock.sendMessage(
           jid,
-          { text: "Video kepanjangan bro, maksimal 10 detik aja buat sticker." },
+          {
+            text: `Video kepanjangan bro, maksimal ${MAX_VIDEO_STICKER_SECONDS} detik aja buat sticker.`
+          },
           { quoted: message }
         );
         return;
@@ -48,7 +57,7 @@ module.exports = {
       const stickerBuffer =
         mediaTarget.type === "imageMessage"
           ? await imageToWebp(mediaBuffer)
-          : await videoToWebp(mediaBuffer, 10);
+          : await videoToWebp(mediaBuffer, MAX_VIDEO_STICKER_SECONDS);
 
       await sock.sendMessage(jid, { sticker: stickerBuffer }, { quoted: message });
     } catch (error) {

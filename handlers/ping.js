@@ -8,7 +8,7 @@ module.exports = {
 
     await sock.sendMessage(
       jid,
-      { text: `Pong! ⚡ ${latency} ms\nBot aman, santai aja 😎` },
+      { text: `Ping! ${latency} ms\nBot aman, santai aja gantenk 😎` },
       { quoted: message }
     );
   }

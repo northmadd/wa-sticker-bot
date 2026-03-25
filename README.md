@@ -6,7 +6,7 @@ WhatsApp bot berbasis Node.js + Baileys dengan command:
 - `.ping`
 - `.sticker` / `.s`
 - `.brat <text>`
-- `.bratvid` (maks 10 detik)
+- `.bratvid` (maks 30 detik)
 
 Requirement minimum: Node.js 20+
 

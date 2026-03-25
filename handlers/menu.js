@@ -8,7 +8,7 @@
 │
 ╰─────────────
 
-Ketik ${prefix}menu 😎`;
+Ketik ${prefix}menu untuk melihat menu ini lagi.`;
 
 module.exports = {
   name: "menu",

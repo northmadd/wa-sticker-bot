@@ -1,6 +1,10 @@
 const pino = require("pino");
 const { downloadMediaMessage } = require("@whiskeysockets/baileys");
-const { videoToWebp, bratTextToAnimatedWebp } = require("../utils/converter");
+const {
+  MAX_VIDEO_STICKER_SECONDS,
+  videoToWebp,
+  bratTextToAnimatedWebp
+} = require("../utils/converter");
 const { getMediaTarget } = require("../utils/message");
 
 const BAILEYS_LOG = pino({ level: "silent" });
@@ -31,17 +35,19 @@ module.exports = {
         await sock.sendMessage(
           jid,
           {
-            text: `Kirim teks atau reply video dulu ya (max 10 detik).\nContoh: ${prefix}bratvid uang gabisa beli kebahagiaan`
+            text: `Kirim teks atau reply video dulu ya (max ${MAX_VIDEO_STICKER_SECONDS} detik).\nContoh: ${prefix}bratvid uang gabisa beli kebahagiaan`
           },
           { quoted: message }
         );
         return;
       }
 
-      if (Number(mediaTarget.seconds || 0) > 10) {
+      if (Number(mediaTarget.seconds || 0) > MAX_VIDEO_STICKER_SECONDS) {
         await sock.sendMessage(
           jid,
-          { text: "Video lebih dari 10 detik, potong dulu ya bro." },
+          {
+            text: `Video lebih dari ${MAX_VIDEO_STICKER_SECONDS} detik, potong dulu ya bro.`
+          },
           { quoted: message }
         );
         return;
@@ -61,7 +67,7 @@ module.exports = {
         throw new Error("Media video tidak terbaca");
       }
 
-      const stickerBuffer = await videoToWebp(mediaBuffer, 10);
+      const stickerBuffer = await videoToWebp(mediaBuffer, MAX_VIDEO_STICKER_SECONDS);
       await sock.sendMessage(jid, { sticker: stickerBuffer }, { quoted: message });
     } catch (error) {
       console.error("Error .bratvid:", error.message);
