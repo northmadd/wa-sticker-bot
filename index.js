@@ -13,6 +13,7 @@ const {
 const { loadDB, saveDB, ensureDBFile } = require("./utils/database");
 const { extractText, parseCommand } = require("./utils/message");
 const { getHandler } = require("./handlers");
+const { getRuntimeLabel } = require("./utils/runtime");
 
 const DATA_DIR = process.env.DATA_DIR || __dirname;
 const BOT_NAME = process.env.BOT_NAME || "northmadbot";
@@ -104,7 +105,7 @@ const startBot = async () => {
           clearTimeout(reconnectTimer);
           reconnectTimer = null;
         }
-        console.log(`\n${BOT_NAME} terkoneksi dan siap dipakai.`);
+        console.log(`\n${BOT_NAME} terkoneksi dan siap dipakai. runtime=${getRuntimeLabel()}`);
       }
 
       if (connection === "close") {

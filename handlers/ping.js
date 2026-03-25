@@ -1,3 +1,6 @@
+const { MAX_VIDEO_STICKER_SECONDS } = require("../utils/converter");
+const { getRuntimeLabel } = require("../utils/runtime");
+
 module.exports = {
   name: "ping",
   commands: ["ping"],
@@ -8,7 +11,9 @@ module.exports = {
 
     await sock.sendMessage(
       jid,
-      { text: `Ping! ${latency} ms\nBot aman, santai aja gantenk 😎` },
+      {
+        text: `Ping! ${latency} ms\nLimit video: ${MAX_VIDEO_STICKER_SECONDS} detik\nRuntime: ${getRuntimeLabel()}`
+      },
       { quoted: message }
     );
   }

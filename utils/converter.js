@@ -54,7 +54,11 @@ const BRAT_BLUR_PASSES = [
 ];
 const BRAT_ANIM_FPS = 12;
 const BRAT_ANIM_FRAMES = 22;
-const MAX_VIDEO_STICKER_SECONDS = 30;
+const RAW_MAX_VIDEO_STICKER_SECONDS = Number(process.env.MAX_VIDEO_STICKER_SECONDS || 30);
+const MAX_VIDEO_STICKER_SECONDS =
+  Number.isFinite(RAW_MAX_VIDEO_STICKER_SECONDS) && RAW_MAX_VIDEO_STICKER_SECONDS > 0
+    ? Math.floor(RAW_MAX_VIDEO_STICKER_SECONDS)
+    : 30;
 
 let bratFontReady = false;
 const emojiImageCache = new Map();

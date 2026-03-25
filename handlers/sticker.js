@@ -6,6 +6,7 @@ const {
   videoToWebp
 } = require("../utils/converter");
 const { getMediaTarget } = require("../utils/message");
+const { getRuntimeLabel } = require("../utils/runtime");
 
 const BAILEYS_LOG = pino({ level: "silent" });
 
@@ -30,10 +31,14 @@ module.exports = {
         mediaTarget.type === "videoMessage" &&
         Number(mediaTarget.seconds || 0) > MAX_VIDEO_STICKER_SECONDS
       ) {
+        const detectedSeconds = Number(mediaTarget.seconds || 0);
+        console.log(
+          `[sticker] reject video duration=${detectedSeconds}s limit=${MAX_VIDEO_STICKER_SECONDS}s runtime=${getRuntimeLabel()}`
+        );
         await sock.sendMessage(
           jid,
           {
-            text: `Video kepanjangan bro, maksimal ${MAX_VIDEO_STICKER_SECONDS} detik aja buat sticker.`
+            text: `Video kebaca ${detectedSeconds} detik.\nLimit bot saat ini ${MAX_VIDEO_STICKER_SECONDS} detik buat sticker.`
           },
           { quoted: message }
         );

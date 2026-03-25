@@ -6,6 +6,7 @@ const {
   bratTextToAnimatedWebp
 } = require("../utils/converter");
 const { getMediaTarget } = require("../utils/message");
+const { getRuntimeLabel } = require("../utils/runtime");
 
 const BAILEYS_LOG = pino({ level: "silent" });
 
@@ -43,10 +44,14 @@ module.exports = {
       }
 
       if (Number(mediaTarget.seconds || 0) > MAX_VIDEO_STICKER_SECONDS) {
+        const detectedSeconds = Number(mediaTarget.seconds || 0);
+        console.log(
+          `[bratvid] reject video duration=${detectedSeconds}s limit=${MAX_VIDEO_STICKER_SECONDS}s runtime=${getRuntimeLabel()}`
+        );
         await sock.sendMessage(
           jid,
           {
-            text: `Video lebih dari ${MAX_VIDEO_STICKER_SECONDS} detik, potong dulu ya bro.`
+            text: `Video kebaca ${detectedSeconds} detik.\nLimit bot saat ini ${MAX_VIDEO_STICKER_SECONDS} detik buat bratvid.`
           },
           { quoted: message }
         );
